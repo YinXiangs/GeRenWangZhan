@@ -1,7 +1,6 @@
-import {createEmailAuth,sendLoginEmail} from './auth.mjs';
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +8,13 @@ const root=dirname(fileURLToPath(import.meta.url)), data=resolve(process.env.DAT
 mkdirSync(join(data,'uploads'),{recursive:true});
 const db=new DatabaseSync(join(data,'journal.db'));
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY,title TEXT,category TEXT,body TEXT,images TEXT,status TEXT,date TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER)');
-const emailAuth=createEmailAuth(db,sendLoginEmail);
+const ownerEmail='yin2164933041@outlook.com';
+const credentialFile=join(data,'admin-credential.json');
+let credential;
+if(process.env.ADMIN_PASSWORD){const salt=randomBytes(16).toString('hex');credential={salt,hash:scryptSync(process.env.ADMIN_PASSWORD,salt,64).toString('hex')}}
+else if(existsSync(credentialFile))credential=JSON.parse(readFileSync(credentialFile,'utf8'));
+else throw Error('请配置 ADMIN_PASSWORD 或本机管理员凭据');
+const loginLimits=new Map();
 // Revoke sessions issued by the former password login, and on server restart.
 db.exec('DELETE FROM sessions');
 const json=(res,status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value))};
@@ -23,10 +28,12 @@ if(path.startsWith('/api/')){
 res.setHeader('Cache-Control','no-store');
 if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&req.headers.origin!==`${process.env.PUBLIC_ORIGIN||`http://${req.headers.host}`}`)return json(res,403,{error:'请求来源不匹配'});
 if(path==='/api/session'&&req.method==='GET')return json(res,200,{admin});
-if(path==='/api/auth/request-code'&&req.method==='POST'){
-const b=await body(req),result=await emailAuth.request(b.email);return json(res,result.status,result)}
 if(path==='/api/login'&&req.method==='POST'){
-const b=await body(req);if(!emailAuth.verify(b.email,b.code))return json(res,401,{error:'邮箱或验证码不正确，验证码可能已过期或尝试次数过多'});
+const b=await body(req),time=Date.now(),entry=loginLimits.get('owner');
+if(entry&&entry.until>time&&entry.count>=5)return json(res,429,{error:'尝试次数过多，请15分钟后重试'});
+const inputHash=scryptSync(String(b.password||'').slice(0,1024),credential.salt,64);
+if(typeof b.email!=='string'||b.email.trim().toLowerCase()!==ownerEmail||!timingSafeEqual(inputHash,Buffer.from(credential.hash,'hex'))){loginLimits.set('owner',{count:entry&&entry.until>time?entry.count+1:1,until:time+900000});return json(res,401,{error:'账号或密码不正确'})}
+loginLimits.delete('owner');
 const now=Date.now();db.prepare('DELETE FROM sessions WHERE expires<?').run(now);const token=randomBytes(32).toString('hex');db.prepare('INSERT INTO sessions VALUES(?,?)').run(createHash('sha256').update(token).digest('hex'),now+86400000);res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${process.env.PUBLIC_ORIGIN?.startsWith('https:')?'; Secure':''}`);return json(res,200,{ok:true})}
 if(path==='/api/logout'&&req.method==='POST'){const token=(req.headers.cookie||'').match(/(?:^|;\s*)session=([^;]+)/)?.[1];if(token)db.prepare('DELETE FROM sessions WHERE token=?').run(createHash('sha256').update(token).digest('hex'));res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true})}
 if(path==='/api/posts'&&req.method==='GET'){const rows=db.prepare(admin?'SELECT * FROM posts ORDER BY date DESC':'SELECT * FROM posts WHERE status=\'published\' ORDER BY date DESC').all();return json(res,200,rows.map(post))}
