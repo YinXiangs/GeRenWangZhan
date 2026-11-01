@@ -4,7 +4,60 @@ let view=new URLSearchParams(location.search).get('view')||'home';
 if(!['home','writing','archive','moments','gallery','about'].includes(view))view='home';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function toast(s){$('#toast').textContent=s;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4000)}
-async function api(path){if(path==='session')return {admin:false};if(path==='posts'){const response=await fetch('./posts.json');if(!response.ok)throw Error('内容加载失败');return response.json()}throw Error('静态网站不提供编辑功能')}
+const cloudURL='https://ceuvupbyuufjpilltimi.supabase.co';
+const cloudKey='sb_publishable_C7AZf3Ec9xqDNk3lfA4MUw_DlezGj7a';
+const sessionKey='yinxiangs-cloud-session';
+let cloudSession=null,refreshing=null;
+try{cloudSession=JSON.parse(sessionStorage.getItem(sessionKey)||'null')}catch{}
+const imageKeys=new Map();
+function saveSession(value){cloudSession=value;if(value)sessionStorage.setItem(sessionKey,JSON.stringify(value));else sessionStorage.removeItem(sessionKey)}
+async function requestCloud(path,method='GET',body,extra={}){
+ const headers={apikey:cloudKey,...extra};if(cloudSession?.access_token)headers.Authorization='Bearer '+cloudSession.access_token;
+ if(body!==undefined&&!(body instanceof Blob)){headers['Content-Type']='application/json';body=JSON.stringify(body)}
+ const r=await fetch(cloudURL+path,{method,headers,body,signal:AbortSignal.timeout(20000)});const text=await r.text();let data;try{data=JSON.parse(text)}catch{data=text}
+ if(!r.ok)throw Error(data?.msg||data?.message||data?.error_description||data?.error||'云端操作失败，请稍后重试');return data;
+}
+async function ensureSession(){
+ if(!cloudSession||cloudSession.expires_at>Date.now()/1000+60)return;
+ if(!refreshing)refreshing=requestCloud('/auth/v1/token?grant_type=refresh_token','POST',{refresh_token:cloudSession.refresh_token}).then(saveSession).catch(e=>{saveSession(null);throw e}).finally(()=>refreshing=null);
+ await refreshing;
+}
+async function displayImage(path){
+ if(/^\.\/media\/[a-f0-9]{32}\.(jpg|png|webp)$/.test(path))return path;
+ if(!/^uploads\/[a-f0-9-]+\.(jpg|png|webp)$/.test(path))throw Error('图片路径无效');
+ const result=await requestCloud('/storage/v1/object/sign/journal-media/'+path,'POST',{expiresIn:3600});
+ const url=cloudURL+'/storage/v1'+result.signedURL;imageKeys.set(url,path);return url;
+}
+async function api(path,method='GET',value){
+ try{await ensureSession()}catch(e){if(path!=='session')throw e}
+ if(path==='session')return {admin:cloudSession?await requestCloud('/rest/v1/rpc/can_edit_journal','POST',{}):false};
+ if(path==='login'){
+  const session=await requestCloud('/auth/v1/token?grant_type=password','POST',value);saveSession(session);
+  try{if(!await requestCloud('/rest/v1/rpc/can_edit_journal','POST',{}))throw Error('这个账号没有编辑权限')}catch(e){saveSession(null);throw e}return {admin:true};
+ }
+ if(path==='logout'){try{await requestCloud('/auth/v1/logout','POST')}catch{}finally{saveSession(null)}return {ok:true}}
+ if(path==='posts'&&method==='GET'){
+  let rows;
+  try{rows=await requestCloud('/rest/v1/journal_posts?select=*&order=date.desc')}catch(e){
+   if(cloudSession||!(e instanceof TypeError||e.name==='TimeoutError'))throw e;
+   const cached=await fetch('./posts.json');if(!cached.ok)throw e;
+   toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
+  }
+  return Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(displayImage))})));
+ }
+ if(path==='posts'&&method==='POST'){
+  const id=value.id||crypto.randomUUID();const row={...value,id,date:posts.find(p=>p.id===id)?.date||new Date().toISOString(),images:value.images.map(url=>imageKeys.get(url)||url)};
+  await requestCloud('/rest/v1/journal_posts?on_conflict=id','POST',row,{Prefer:'resolution=merge-duplicates,return=minimal'});return {id};
+ }
+ if(path.startsWith('posts/')&&method==='DELETE'){await requestCloud('/rest/v1/journal_posts?id=eq.'+encodeURIComponent(path.slice(6)),'DELETE');return {ok:true}}
+ if(path==='uploads'){
+  const bytes=Uint8Array.from(atob(value.content),c=>c.charCodeAt(0));if(bytes.length>8388608)throw Error('单张图片不能超过8MB');
+  let ext,type;if(bytes[0]===255&&bytes[1]===216&&bytes[2]===255){ext='jpg';type='image/jpeg'}else if(bytes.slice(0,8).join() ==='137,80,78,71,13,10,26,10'){ext='png';type='image/png'}else if(String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&String.fromCharCode(...bytes.slice(8,12))==='WEBP'){ext='webp';type='image/webp'}else throw Error('只支持 JPG、PNG、WebP 图片');
+  const key='uploads/'+crypto.randomUUID()+'.'+ext;await requestCloud('/storage/v1/object/journal-media/'+key,'POST',new Blob([bytes],{type}),{'Content-Type':type});return {url:await displayImage(key)};
+ }
+ throw Error('不支持的操作');
+}
+
 function modal(html){$('#dialog-content').innerHTML=html;if(!$('#dialog').open)$('#dialog').showModal()}
 function close(){if(dirty&&!confirm('还有未保存的修改，确定离开吗？'))return;dirty=false;$('#dialog').close();if(new URLSearchParams(location.search).has('post')){const url=new URL(location.href);url.searchParams.delete('post');history.pushState({},'',url)}}
 $('#close').onclick=close;$('#dialog').addEventListener('cancel',e=>{e.preventDefault();close()});window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
@@ -28,7 +81,8 @@ function render(){
 }
 async function refresh(){posts=await api('posts');render()}
 document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();$('#collection').scrollIntoView({behavior:'smooth'})});$('#explore').onclick=()=>$('#collection').scrollIntoView({behavior:'smooth'});$('#search').oninput=render;
-function openPost(id,push=true){const p=posts.find(p=>p.id===id);if(!p){modal('<h2>这篇记录暂时无法查看</h2><p>内容可能未发布，或已被移除。</p>');return}dirty=false;if(push){const url=new URL(location.href);url.searchParams.set('post',p.id);history.pushState({},'',url)}modal(`<p class="eyebrow">${names[p.category]} · ${new Date(p.date).toLocaleDateString('zh-CN')}${p.status==='draft'?' · 仅自己可见':''}</p><h2>${escape(p.title)}</h2><div class="article-body">${escape(p.body)}</div><div class="article-images">${p.images.map(s=>`<a href="${escape(s)}" target="_blank" rel="noopener"><img src="${escape(s)}" alt="${escape(p.title)}" loading="lazy"></a>`).join('')}</div><div class="actions"><button class="outline" id="share">复制分享链接</button></div>`);$('#share').onclick=async()=>{if(p.status==='draft'){toast('草稿仅自己可见，请先发布');return}try{await navigator.clipboard.writeText((()=>{const url=new URL(location.href);url.searchParams.set('post',p.id);return url.href})());toast('分享链接已复制')}catch{toast('可复制浏览器地址栏中的链接')}};}
-
-window.onpopstate=()=>{const id=new URLSearchParams(location.search).get('post');if(id)openPost(id,false);else $('#dialog').close()};
-(async()=>{try{await refresh();const id=new URLSearchParams(location.search).get('post');if(id)openPost(id,false)}catch(e){toast(e.message)}})();
+$('#account').onclick=async()=>{if(admin){try{await api('logout','POST');admin=false;await refresh()}catch(e){toast(e.message)}return}modal(`<p class="eyebrow">WELCOME BACK</p><h2>管理登录</h2><p>登录后编辑你的记录，访客可直接浏览公开内容。</p><form id="login"><label>账号<input name="email" type="email" autocomplete="username" value="yin2164933041@outlook.com" placeholder="输入管理邮箱" required></label><label>密码<input name="password" type="password" autocomplete="current-password" placeholder="输入密码" required></label><button class="primary">登录</button><p id="login-error" role="status" aria-live="polite"></p></form>`);const form=$('#login');form.onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;try{await api('login','POST',Object.fromEntries(new FormData(form)));admin=true;close();await refresh();toast('欢迎回来')}catch(err){$('#login-error').textContent=err.message}finally{button.disabled=false}}};
+function openPost(id,push=true){const p=posts.find(p=>p.id===id);if(!p){modal('<h2>这篇记录暂时无法查看</h2><p>内容可能未发布，或已被移除。</p>');return}dirty=false;if(push){const url=new URL(location.href);url.searchParams.set('post',p.id);history.pushState({},'',url)}modal(`<p class="eyebrow">${names[p.category]} · ${new Date(p.date).toLocaleDateString('zh-CN')}${p.status==='draft'?' · 仅自己可见':''}</p><h2>${escape(p.title)}</h2><div class="article-body">${escape(p.body)}</div><div class="article-images">${p.images.map(s=>`<a href="${escape(s)}" target="_blank" rel="noopener"><img src="${escape(s)}" alt="${escape(p.title)}" loading="lazy"></a>`).join('')}</div><div class="actions"><button class="outline" id="share">复制分享链接</button>${admin?'<button class="primary" id="edit">编辑记录</button><button class="outline" id="delete">删除</button>':''}</div>`);$('#share').onclick=async()=>{if(p.status==='draft'){toast('草稿仅自己可见，请先发布');return}try{await navigator.clipboard.writeText((()=>{const url=new URL(location.href);url.searchParams.set('post',p.id);return url.href})());toast('分享链接已复制')}catch{toast('可复制浏览器地址栏中的链接')}};if(admin){$('#edit').onclick=()=>editor(p);$('#delete').onclick=async()=>{if(!confirm('确定删除这篇记录？此操作无法撤销。'))return;try{await api('posts/'+p.id,'DELETE');close();await refresh();toast('已删除')}catch(e){toast(e.message)}}}}
+function editor(p={title:'',category:'life',body:'',images:[]}){let images=[...p.images],uploading=false;dirty=false;modal(`<p class="eyebrow">MAKE A LITTLE MEMORY</p><h2>${p.id?'编辑记录':'写一篇新的记录'}</h2><form id="editor"><label>标题<input name="title" value="${escape(p.title)}" maxlength="200" placeholder="给今天起个名字" required></label><label>收进哪个栏目<select name="category">${Object.entries(names).map(([v,n])=>`<option value="${v}" ${v===p.category?'selected':''}>${n}</option>`).join('')}</select></label><label>正文<textarea name="body" maxlength="100000" placeholder="写下你想留下的事情…">${escape(p.body)}</textarea></label><label>添加图片（JPG / PNG / WebP，每张不超过8MB，最多30张）<input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple></label><p id="upload-status" role="status"></p><div class="thumbs" id="thumbs"></div><p>图片按上传顺序展示，第一张作为封面。</p><div class="actions"><button type="button" id="preview" class="outline">预览</button><button name="status" value="draft" class="outline">保存草稿</button><button name="status" value="published" class="primary">发布记录</button></div><p id="save-error" role="alert"></p></form>`);const form=$('#editor');form.oninput=()=>dirty=true;function thumbs(){$('#thumbs').innerHTML=images.map((s,i)=>`<figure><img src="${s}" alt="已上传图片 ${i+1}"><button type="button" data-remove="${i}">移除</button>${i?`<button type="button" data-up="${i}">向前移动</button>`:''}</figure>`).join('');document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{images.splice(Number(b.dataset.remove),1);dirty=true;thumbs()});document.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.up);[images[i-1],images[i]]=[images[i],images[i-1]];dirty=true;thumbs()})}thumbs();$('#files').onchange=async e=>{uploading=true;$('#upload-status').textContent='正在上传，请稍候…';try{for(const file of e.target.files){if(images.length>=30)throw Error('最多上传30张图片');if(file.size>8*1024*1024)throw Error('单张图片不能超过8MB');const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file)});const result=await api('uploads','POST',{content});images.push(result.url);dirty=true;thumbs()}$('#upload-status').textContent='上传完成'}catch(err){$('#upload-status').textContent=err.message}finally{uploading=false;e.target.value=''}};$('#preview').onclick=()=>{let area=$('#editor-preview');if(!area){area=document.createElement('section');area.id='editor-preview';form.append(area)}area.innerHTML=`<hr><h2>${escape(form.elements.title.value)}</h2><div class="article-body">${escape(form.elements.body.value)}</div><div class="article-images">${images.map(s=>`<img src="${s}" alt="预览图片">`).join('')}</div>`;area.scrollIntoView({behavior:'smooth'})};form.onsubmit=async e=>{e.preventDefault();if(uploading){toast('请等待图片上传完成');return}const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);try{const result=await api('posts','POST',{id:p.id,title:form.elements.title.value,category:form.elements.category.value,body:form.elements.body.value,images,status:e.submitter?.value||'draft'});dirty=false;await refresh();openPost(result.id);toast(e.submitter?.value==='published'?'已公开发布，可分享给朋友':'草稿已保存，仅自己可见')}catch(err){$('#save-error').textContent=err.message}finally{buttons.forEach(b=>b.disabled=false)}}}
+$('#new').onclick=()=>editor();window.onpopstate=()=>{if(new URLSearchParams(location.search).has('post'))openPost(new URLSearchParams(location.search).get('post'),false);else{dirty=false;$('#dialog').close()}};
+(async()=>{try{admin=(await api('session')).admin;await refresh();if(new URLSearchParams(location.search).has('post'))openPost(new URLSearchParams(location.search).get('post'),false)}catch(e){$('#grid').innerHTML='<div class="empty">加载失败，请刷新重试。</div>';toast(e.message)}})();
