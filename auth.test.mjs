@@ -6,7 +6,7 @@ test('邮箱白名单、单次验证、过期、错误次数、重发限制、�
  const db=new DatabaseSync(':memory:');let code,recipient;
  const auth=createEmailAuth(db,async(email,value)=>{recipient=email;code=value});
  assert.equal((await auth.request('other@example.com')).status,403);
- assert.equal((await auth.request(ownerEmail)).status,200);assert.equal(recipient,ownerEmail);assert.match(code,/^\d{6}$/);
+ assert.equal((await auth.request(ownerEmail)).status,200);assert.equal(recipient,ownerEmail);assert.match(code,/^\d{4}$/);
  assert.equal((await auth.request(ownerEmail)).status,429);
  assert.equal(auth.verify('other@example.com',code),false);
  assert.equal(auth.verify(ownerEmail,code),true);assert.equal(auth.verify(ownerEmail,code),false);

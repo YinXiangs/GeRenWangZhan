@@ -12,7 +12,7 @@ export function createEmailAuth(db,sendMail){
   if(row&&now-row.sent<60000)return {status:429,error:'请等待60秒后再获取验证码'};
   const sameWindow=row&&now-row.window<3600000;
   if(sameWindow&&row.count>=5)return {status:429,error:'本小时发送次数已达上限，请稍后再试'};
-  const code=String(randomInt(0,1000000)).padStart(6,'0');
+  const code=String(randomInt(0,10000)).padStart(4,'0');
   db.prepare('INSERT OR REPLACE INTO email_auth VALUES(?,?,?,?,?,?,?)').run(ownerEmail,digest(code),now+600000,0,now,sameWindow?row.window:now,sameWindow?row.count+1:1);
   try{await sendMail(ownerEmail,code)}catch{db.prepare('UPDATE email_auth SET hash=\'\',expires=0 WHERE email=? AND hash=?').run(ownerEmail,digest(code));return {status:503,error:'验证码发送失败，请检查邮件服务配置后重试'}}
   return {status:200,ok:true};
@@ -22,7 +22,7 @@ export function createEmailAuth(db,sendMail){
   const row=db.prepare('SELECT * FROM email_auth WHERE email=?').get(ownerEmail);
   if(!row||row.expires<=Date.now()||row.tries>=5||!row.hash)return false;
   db.prepare('UPDATE email_auth SET tries=tries+1 WHERE email=?').run(ownerEmail);
-  if(typeof code!=='string'||!/^\d{6}$/.test(code)||!timingSafeEqual(Buffer.from(digest(code)),Buffer.from(row.hash)))return false;
+  if(typeof code!=='string'||!/^\d{4}$/.test(code)||!timingSafeEqual(Buffer.from(digest(code)),Buffer.from(row.hash)))return false;
   db.prepare('UPDATE email_auth SET hash=\'\',expires=0 WHERE email=?').run(ownerEmail);return true;
  }
  };
