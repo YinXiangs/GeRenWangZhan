@@ -1,5 +1,5 @@
 import {randomInt,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
-export const ownerEmail='yin21649330441@outlook.com';
+export const ownerEmail='yin2164933041@outlook.com';
 export function createEmailAuth(db,sendMail){
  const secret=randomBytes(32);
  db.exec('CREATE TABLE IF NOT EXISTS email_auth(email TEXT PRIMARY KEY,hash TEXT,expires INTEGER,tries INTEGER,sent INTEGER,window INTEGER,count INTEGER)');

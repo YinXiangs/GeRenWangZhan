@@ -14,9 +14,9 @@ const request=(path,method='GET',value,cookie='',origin)=>fetch(`http://localhos
 assert.equal((await request('posts','POST',{})).status,401);
 assert.equal((await request('login','POST',{username:'admin',password:'wrong'})).status,401);
 assert.equal((await request('auth/request-code','POST',{email:'other@example.com'})).status,403);
-assert.equal((await request('auth/request-code','POST',{email:'yin21649330441@outlook.com'})).status,200);
-const mail=JSON.parse(readFileSync(inbox,'utf8'));assert.deepEqual(mail.to,['yin21649330441@outlook.com']);const code=mail.text.match(/\d{6}/)[0];
-let r=await request('login','POST',{email:'yin21649330441@outlook.com',code});assert.equal(r.status,200);const cookie=r.headers.get('set-cookie').split(';')[0];
+assert.equal((await request('auth/request-code','POST',{email:'yin2164933041@outlook.com'})).status,200);
+const mail=JSON.parse(readFileSync(inbox,'utf8'));assert.deepEqual(mail.to,['yin2164933041@outlook.com']);const code=mail.text.match(/\d{6}/)[0];
+let r=await request('login','POST',{email:'yin2164933041@outlook.com',code});assert.equal(r.status,200);const cookie=r.headers.get('set-cookie').split(';')[0];
 const p={title:'测试记录',category:'life',body:'今天的记录',images:[],status:'draft'};r=await request('posts','POST',p,cookie);const{id}=await r.json();assert.ok(id);
 assert.equal((await(await request('posts')).json()).length,0);assert.equal((await(await request('posts','GET',undefined,cookie)).json()).length,1);
 assert.equal((await request('posts','POST',{...p,id,status:'published'},cookie,'https://attacker.example')).status,403);
