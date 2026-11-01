@@ -1,0 +1,29 @@
+.hero{background-position:calc(50% + var(--drift-x,0px)) calc(43% + var(--drift-y,0px));transition:background-position .8s ease-out;overflow:hidden}
+.atmosphere{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0;contain:paint}
+.hero-copy{z-index:1}.waves{z-index:2}
+.light-ribbon{position:absolute;top:-30%;height:160%;width:18%;background:linear-gradient(90deg,transparent,#66b5ff16,#9bcfff28,transparent);filter:blur(22px);transform:rotate(24deg);mix-blend-mode:screen;animation:light-pass 22s ease-in-out infinite alternate;opacity:.55}
+.ribbon-one{left:45%}.ribbon-two{left:75%;width:8%;animation-duration:28s;animation-delay:-13s;opacity:.3}
+.firefly{position:absolute;left:var(--x);top:var(--y);width:var(--size);height:var(--size);border-radius:50%;background:#c1edff;box-shadow:0 0 8px 2px #71bcff88;opacity:0;animation:firefly-drift var(--duration) ease-in-out var(--delay) infinite}
+@keyframes firefly-drift{0%,100%{transform:translate3d(-8px,20px,0);opacity:0}25%{opacity:.65}65%{opacity:.3}85%{transform:translate3d(18px,-45px,0);opacity:0}}
+@keyframes light-pass{from{transform:translate3d(-35px,0,0) rotate(24deg);opacity:.2}to{transform:translate3d(65px,0,0) rotate(19deg);opacity:.6}}
+.motion-paused .atmosphere *,.page-hidden .atmosphere *{animation-play-state:paused}
+@media(max-width:700px){.hero{background-position:42% center}.firefly:nth-child(n+12){display:none}.light-ribbon{filter:blur(16px)}}
+@media(prefers-reduced-motion:reduce){.atmosphere{display:none}.hero{transition:none;background-position:50% 43%}}
+.firefly:nth-of-type(1){--x:7%;--y:9%;--delay:-0s;--duration:9s;--size:2px}
+.firefly:nth-of-type(2){--x:44%;--y:32%;--delay:-1.7s;--duration:10s;--size:3px}
+.firefly:nth-of-type(3){--x:81%;--y:55%;--delay:-3.4s;--duration:11s;--size:4px}
+.firefly:nth-of-type(4){--x:18%;--y:78%;--delay:-5.1s;--duration:12s;--size:2px}
+.firefly:nth-of-type(5){--x:55%;--y:11%;--delay:-6.8s;--duration:13s;--size:3px}
+.firefly:nth-of-type(6){--x:92%;--y:34%;--delay:-8.5s;--duration:14s;--size:4px}
+.firefly:nth-of-type(7){--x:29%;--y:57%;--delay:-10.2s;--duration:15s;--size:2px}
+.firefly:nth-of-type(8){--x:66%;--y:80%;--delay:-11.9s;--duration:9s;--size:3px}
+.firefly:nth-of-type(9){--x:3%;--y:13%;--delay:-13.6s;--duration:10s;--size:4px}
+.firefly:nth-of-type(10){--x:40%;--y:36%;--delay:-15.299999999999999s;--duration:11s;--size:2px}
+.firefly:nth-of-type(11){--x:77%;--y:59%;--delay:-17s;--duration:12s;--size:3px}
+.firefly:nth-of-type(12){--x:14%;--y:82%;--delay:-18.7s;--duration:13s;--size:4px}
+.firefly:nth-of-type(13){--x:51%;--y:15%;--delay:-20.4s;--duration:14s;--size:2px}
+.firefly:nth-of-type(14){--x:88%;--y:38%;--delay:-22.099999999999998s;--duration:15s;--size:3px}
+.firefly:nth-of-type(15){--x:25%;--y:61%;--delay:-23.8s;--duration:9s;--size:4px}
+.firefly:nth-of-type(16){--x:62%;--y:84%;--delay:-25.5s;--duration:10s;--size:2px}
+.firefly:nth-of-type(17){--x:99%;--y:17%;--delay:-27.2s;--duration:11s;--size:3px}
+.firefly:nth-of-type(18){--x:36%;--y:40%;--delay:-28.9s;--duration:12s;--size:4px}
