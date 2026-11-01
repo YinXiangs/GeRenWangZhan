@@ -17,3 +17,8 @@
 ## 验证
 
 `npm test` 运行实际 HTTP 集成测试，覆盖管理员登录、草稿隔离、发布后访客浏览、权限验证、跨来源拒绝、删除和退出。
+
+## 静态托管
+
+本机继续用 npm start 编辑。执行 npm run export，将已发布内容和引用图片导出到 static-site/。草稿、数据库、管理员凭据和编辑接口均不进入公开版。将 static-site/ 上传静态托管即可。仓库附 GitHub Pages 工作流：在仓库 Settings → Pages 将 Source 设置为 GitHub Actions，之后提交 static-site/ 更新即可发布。公开页面分享链接使用 ?post=编号，兼容子目录和刷新。数据库与原图请独立备份，静态快照不能替代完整备份。
+
