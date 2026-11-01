@@ -1,6 +1,7 @@
+import {createEmailAuth,sendLoginEmail} from './auth.mjs';
 import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,9 +9,9 @@ const root=dirname(fileURLToPath(import.meta.url)), data=resolve(process.env.DAT
 mkdirSync(join(data,'uploads'),{recursive:true});
 const db=new DatabaseSync(join(data,'journal.db'));
 db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY,title TEXT,category TEXT,body TEXT,images TEXT,status TEXT,date TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER)');
-const username=process.env.ADMIN_USER||'admin', password=process.env.ADMIN_PASSWORD;
-if(!password || password.length<12) throw new Error('请设置至少12位的 ADMIN_PASSWORD 环境变量');
-const salt=randomBytes(16), passwordHash=scryptSync(password,salt,64), attempts=new Map();
+const emailAuth=createEmailAuth(db,sendLoginEmail);
+// Revoke sessions issued by the former password login, and on server restart.
+db.exec('DELETE FROM sessions');
 const json=(res,status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value))};
 async function body(req){let s='';for await(const chunk of req){s+=chunk;if(Buffer.byteLength(s)>12*1024*1024)throw new Error('内容过大，单张图片请小于8MB')}return JSON.parse(s||'{}')}
 function signedIn(req){const token=(req.headers.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('session='))?.slice(8);return token&&db.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(createHash('sha256').update(token).digest('hex'),Date.now())}
@@ -22,10 +23,11 @@ if(path.startsWith('/api/')){
 res.setHeader('Cache-Control','no-store');
 if(!['GET','HEAD'].includes(req.method)&&req.headers.origin&&req.headers.origin!==`${process.env.PUBLIC_ORIGIN||`http://${req.headers.host}`}`)return json(res,403,{error:'请求来源不匹配'});
 if(path==='/api/session'&&req.method==='GET')return json(res,200,{admin});
+if(path==='/api/auth/request-code'&&req.method==='POST'){
+const b=await body(req),result=await emailAuth.request(b.email);return json(res,result.status,result)}
 if(path==='/api/login'&&req.method==='POST'){
-const ip=req.socket.remoteAddress, now=Date.now(), a=attempts.get(ip);if(a&&a.until>now&&a.count>=10)return json(res,429,{error:'尝试次数过多，请15分钟后再试'});
-const b=await body(req);if(b.username!==username||!timingSafeEqual(scryptSync(String(b.password||''),salt,64),passwordHash)){attempts.set(ip,{count:a&&a.until>now?a.count+1:1,until:now+900000});return json(res,401,{error:'账号或密码不正确'})}
-attempts.delete(ip);db.prepare('DELETE FROM sessions WHERE expires<?').run(now);const token=randomBytes(32).toString('hex');db.prepare('INSERT INTO sessions VALUES(?,?)').run(createHash('sha256').update(token).digest('hex'),now+86400000);res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${process.env.PUBLIC_ORIGIN?.startsWith('https:')?'; Secure':''}`);return json(res,200,{ok:true})}
+const b=await body(req);if(!emailAuth.verify(b.email,b.code))return json(res,401,{error:'邮箱或验证码不正确，验证码可能已过期或尝试次数过多'});
+const now=Date.now();db.prepare('DELETE FROM sessions WHERE expires<?').run(now);const token=randomBytes(32).toString('hex');db.prepare('INSERT INTO sessions VALUES(?,?)').run(createHash('sha256').update(token).digest('hex'),now+86400000);res.setHeader('Set-Cookie',`session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${process.env.PUBLIC_ORIGIN?.startsWith('https:')?'; Secure':''}`);return json(res,200,{ok:true})}
 if(path==='/api/logout'&&req.method==='POST'){const token=(req.headers.cookie||'').match(/(?:^|;\s*)session=([^;]+)/)?.[1];if(token)db.prepare('DELETE FROM sessions WHERE token=?').run(createHash('sha256').update(token).digest('hex'));res.setHeader('Set-Cookie','session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true})}
 if(path==='/api/posts'&&req.method==='GET'){const rows=db.prepare(admin?'SELECT * FROM posts ORDER BY date DESC':'SELECT * FROM posts WHERE status=\'published\' ORDER BY date DESC').all();return json(res,200,rows.map(post))}
 if(!admin)return json(res,401,{error:'请先登录'});

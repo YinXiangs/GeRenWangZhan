@@ -7,8 +7,8 @@
 需要 Node.js 24 或更高版本，无需安装第三方依赖。
 
 ```powershell
-$env:ADMIN_USER = 'admin'
-$env:ADMIN_PASSWORD = '替换为至少12位的独立强密码'
+$env:RESEND_API_KEY = '在本机设置邮件服务密钥，不要提交仓库'
+$env:MAIL_FROM = '已验证的发件地址'
 node server.mjs
 ```
 
@@ -20,15 +20,18 @@ node server.mjs
 
 | 变量 | 说明 |
 | --- | --- |
-| ADMIN_USER | 管理员账号，默认 admin |
-| ADMIN_PASSWORD | 必填，至少12位；不要写入仓库 |
+| RESEND_API_KEY | Resend 发信密钥，只保存在服务端环境变量 |
+| MAIL_FROM | Resend 支持的已验证发件地址 |
 | PORT | 默认3000 |
 | DATA_DIR | 数据库和图片目录，默认项目下 data；生产应指向持久磁盘 |
 | PUBLIC_ORIGIN | 公开站点来源，如 https://example.com，不带末尾斜杠；HTTPS 时启用安全 Cookie |
 
 生产服务使用单实例并开启 HTTPS，持久磁盘挂载到 DATA_DIR。所有访客共享同一份已发布内容。请定期备份整个数据目录；在线数据库应使用 SQLite 在线备份方式或在停止服务后备份，避免仅复制 journal.db 而遗漏 WAL。删除记录不自动删除图片，避免误删其他记录引用的素材。图片按原文件保存，上传前请自行移除敏感位置元数据。
 
-账号密码在服务器环境设置，启动时计算密码散列。登录 Cookie 为 HttpOnly、SameSite=Strict，24小时失效，退出即撤销；服务端校验写权限和请求来源，并限制登录尝试。不要将管理密码分享给访客。
+仅允许 `yin21649330441@outlook.com` 通过邮箱验证码登录编辑，其他邮箱在服务端被拒绝。原密码登录已移除。验证码6位，10分钟有效，单次使用，最多尝试5次；重发间隔60秒，每小时最多5次。验证码只以带服务端随机密钥的 HMAC 摘要存入数据库，不在接口或日志中暴露。服务器重启后旧验证码及登录会话失效。
+
+登录 Cookie 为 HttpOnly、SameSite=Strict，24小时失效，退出即撤销；服务端校验写权限和请求来源。没有邮件服务配置时发送接口明确报错，不会假装已发送，也没有验证码绕过入口。请在本机或部署平台的环境变量中设置 RESEND_API_KEY 与 MAIL_FROM；不要把密钥发到聊天或提交 GitHub。发信接口参考 https://resend.com/docs/api-reference/emails/send-email 。需自行完成邮件服务账号及发件域名验证，并在真实邮箱中验收投递。公开访客不需要登录。
+
 
 ## 自定义
 
