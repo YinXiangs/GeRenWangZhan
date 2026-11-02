@@ -37,6 +37,7 @@ async function api(path,method='GET',value){
    const cached=await fetch('./posts.json',{cache:'no-store'});if(!cached.ok)throw e;
    toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
   }
+  try{const r=await fetch('./repository-posts.json',{cache:'no-store'});if(r.ok){const extra=await r.json();const ids=new Set(rows.map(p=>p.id));rows.push(...extra.filter(p=>!ids.has(p.id)));rows.sort((a,b)=>new Date(b.date)-new Date(a.date))}}catch{}
   let failed=false;
   const resolved=await Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(async path=>{
    try{return await displayImage(path)}catch{
