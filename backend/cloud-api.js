@@ -38,6 +38,7 @@ async function api(path,method='GET',value){
    toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
   }
   try{const r=await fetch('./repository-posts.json',{cache:'no-store'});if(r.ok){const extra=await r.json();const ids=new Set(rows.map(p=>p.id));rows.push(...extra.filter(p=>!ids.has(p.id)));rows.sort((a,b)=>new Date(b.date)-new Date(a.date))}}catch{}
+  rows=rows.map(p=>p.category==='photo'&&p.body.startsWith('[album:travel]\n')?{...p,category:'travel',body:p.body.slice(15)}:p);
   let failed=false;
   const resolved=await Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(async path=>{
    try{return await displayImage(path)}catch{
@@ -49,6 +50,7 @@ async function api(path,method='GET',value){
  }
  if(path==='posts'&&method==='POST'){
   const id=value.id||crypto.randomUUID();const row={...value,id,date:posts.find(p=>p.id===id)?.date||new Date().toISOString(),images:value.images.map(url=>imageKeys.get(url)||url)};
+  if(row.category==='travel'){row.category='photo';row.body='[album:travel]\n'+row.body}
   await requestCloud('/rest/v1/journal_posts?on_conflict=id','POST',row,{Prefer:'resolution=merge-duplicates,return=minimal'});return {id};
  }
  if(path.startsWith('posts/')&&method==='DELETE'){await requestCloud('/rest/v1/journal_posts?id=eq.'+encodeURIComponent(path.slice(6)),'DELETE');return {ok:true}}

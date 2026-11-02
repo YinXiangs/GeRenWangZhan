@@ -16,8 +16,9 @@ function articleMarkup(text){
  return out.join('');
 }
 
-const $=s=>document.querySelector(s),names={life:'日常生活',study:'学习记录',art:'绘画作品',photo:'生活照片',work:'工作日常',portrait:'人像旅拍'};
+const $=s=>document.querySelector(s),names={life:'日常生活',study:'学习记录',art:'绘画作品',photo:'生活照片',work:'工作日常',portrait:'人像旅拍',travel:'旅游拍摄'};
 let posts=[],admin=false,tab='all',dirty=false;
+let galleryPage=1,galleryKey='';
 let view=new URLSearchParams(location.search).get('view')||'home';
 if(!['home','writing','archive','moments','gallery','about'].includes(view))view='home';
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -62,6 +63,7 @@ async function api(path,method='GET',value){
    toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
   }
   try{const r=await fetch('./repository-posts.json',{cache:'no-store'});if(r.ok){const extra=await r.json();const ids=new Set(rows.map(p=>p.id));rows.push(...extra.filter(p=>!ids.has(p.id)));rows.sort((a,b)=>new Date(b.date)-new Date(a.date))}}catch{}
+  rows=rows.map(p=>p.category==='photo'&&p.body.startsWith('[album:travel]\n')?{...p,category:'travel',body:p.body.slice(15)}:p);
   let failed=false;
   const resolved=await Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(async path=>{
    try{return await displayImage(path)}catch{
@@ -73,6 +75,7 @@ async function api(path,method='GET',value){
  }
  if(path==='posts'&&method==='POST'){
   const id=value.id||crypto.randomUUID();const row={...value,id,date:posts.find(p=>p.id===id)?.date||new Date().toISOString(),images:value.images.map(url=>imageKeys.get(url)||url)};
+  if(row.category==='travel'){row.category='photo';row.body='[album:travel]\n'+row.body}
   await requestCloud('/rest/v1/journal_posts?on_conflict=id','POST',row,{Prefer:'resolution=merge-duplicates,return=minimal'});return {id};
  }
  if(path.startsWith('posts/')&&method==='DELETE'){await requestCloud('/rest/v1/journal_posts?id=eq.'+encodeURIComponent(path.slice(6)),'DELETE');return {ok:true}}
@@ -94,14 +97,27 @@ function render(){
  document.body.dataset.view=view;$('.hero').hidden=view!=='home';$('#page-intro').hidden=['home','about'].includes(view);$('.blog-layout').hidden=view==='about';$('#about-page').hidden=view!=='about';
  $('#page-title').textContent=views[view][0];$('#page-description').textContent=views[view][1];$('#page-eyebrow').textContent='YINXIANGS / '+view.toUpperCase();
  document.querySelectorAll('[data-view]').forEach(a=>{a.classList.toggle('active',a.dataset.view===view);if(a.dataset.view===view)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
- const q=$('#search').value.toLowerCase();const list=posts.filter(p=>(view!=='home'||['life','study','work'].includes(p.category))&&(view!=='writing'||['study','work'].includes(p.category))&&(view!=='moments'||p.category==='life')&&(view!=='gallery'||['portrait','art','photo'].includes(p.category))&&(tab==='all'||p.category===tab)&&(p.title+' '+p.body).toLowerCase().includes(q));
- $('#heading').textContent=tab==='all'?views[view][0]:names[tab];document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);const allowed=view==='gallery'?['all','portrait','art','photo']:view==='moments'?['all','life']:view==='writing'?['all','study','work']:['all','life','study','work'];b.hidden=!allowed.includes(b.dataset.tab)});$('#album-link').hidden=view==='gallery';$('#new').hidden=!admin;$('#account').textContent=admin?'退出管理 ↗':'管理登录 ↗';
+ const q=$('#search').value.toLowerCase();let list=posts.filter(p=>(view!=='home'||['life','study','work'].includes(p.category))&&(view!=='writing'||['study','work'].includes(p.category))&&(view!=='moments'||p.category==='life')&&(view!=='gallery'||['portrait','art','photo','travel'].includes(p.category))&&(tab==='all'||p.category===tab)&&(p.title+' '+p.body).toLowerCase().includes(q));
+
+ const galleryOverview=view==='gallery'&&tab==='all'&&!q;
+ let galleryTotal=0,galleryPages=1;
+ if(view==='gallery'&&!galleryOverview){
+  const key=tab+'|'+q;if(key!==galleryKey){galleryPage=1;galleryKey=key}
+  list=list.flatMap(p=>p.images.map(image=>({...p,images:[image]})));
+  galleryTotal=list.length;galleryPages=Math.max(1,Math.ceil(galleryTotal/9));galleryPage=Math.min(galleryPage,galleryPages);
+  list=list.slice((galleryPage-1)*9,galleryPage*9);
+ }
+ let pager=$('#gallery-pagination');if(!pager){pager=document.createElement('nav');pager.id='gallery-pagination';pager.setAttribute('aria-label','相册翻页');$('#grid').after(pager)}
+ pager.hidden=view!=='gallery'||galleryOverview||galleryTotal===0;
+ pager.innerHTML=pager.hidden?'':`<span class="page-summary">共 ${galleryTotal} 张 · 第 ${galleryPage} / ${galleryPages} 页</span><button data-page="${galleryPage-1}" ${galleryPage===1?'disabled':''}>上一页</button>${Array.from({length:galleryPages},(_,i)=>`<button data-page="${i+1}" aria-label="第 ${i+1} 页" ${i+1===galleryPage?'aria-current="page"':''}>${i+1}</button>`).join('')}<button data-page="${galleryPage+1}" ${galleryPage===galleryPages?'disabled':''}>下一页</button>`;
+ pager.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{galleryPage=Number(b.dataset.page);render();$('#collection').scrollIntoView({behavior:'smooth'})});
+ $('#heading').textContent=tab==='all'?views[view][0]:names[tab];document.querySelectorAll('[data-tab]').forEach(b=>{b.classList.toggle('active',b.dataset.tab===tab);const allowed=view==='gallery'?['all','portrait','art','photo','travel']:view==='moments'?['all','life']:view==='writing'?['all','study','work']:['all','life','study','work'];b.hidden=!allowed.includes(b.dataset.tab)});$('#album-link').hidden=view==='gallery';$('#new').hidden=!admin;$('#account').textContent=admin?'退出管理 ↗':'管理登录 ↗';
  const feature=published.find(p=>['life','study','work'].includes(p.category));$('#featured').innerHTML=view==='home'&&!q&&tab==='all'?feature?`<button class="feature-story" data-id="${escape(feature.id)}">${feature.images[0]?`<img src="${escape(feature.images[0])}" alt="${escape(feature.title)}">`:'<div class="feature-landscape"></div>'}<div><span class="feature-pill">✧ 最新公开记录</span><h2>${escape(feature.title)}</h2><p>${escape(feature.body.slice(0,70))}</p><small>${new Date(feature.date).toLocaleDateString('zh-CN')} · ${names[feature.category]}</small></div></button>`:`<div class="feature-story welcome-feature"><div class="feature-landscape"></div><div><span class="feature-pill">🖌 THE FIRST PAGE</span><h2>让每一个平凡的日子，<br>都有迹可循。</h2><p>生活是灵感的来处，记录是与未来自己的对话。</p><small>YINXIANGS / PERSONAL JOURNAL</small></div></div>`:'';
- $('#grid').innerHTML=list.length?list.map((p,i)=>`<button class="card ${p.category}" data-id="${escape(p.id)}"><span class="card-index">${String(i+1).padStart(2,'0')}</span>${p.images.length?`<div class="photo-frame"><img loading="lazy" src="${escape(p.images[0])}" alt="${escape(p.title)}"><span class="photo-count">${p.images.length} 张</span></div>`:`<div class="cover">${{life:'日',study:'学',work:'作',portrait:'旅',art:'画',photo:'光'}[p.category]}</div>`}<div class="card-body"><div class="meta"><span>${names[p.category]}${p.status==='draft'?' · 草稿':''}</span><time>${new Date(p.date).toLocaleDateString('zh-CN')}</time></div><h3>${escape(p.title)}</h3><p>${escape(p.body.slice(0,100))}${p.body.length>100?'…':''}</p><span class="read-more">阅读记录 ↗</span></div></button>`).join(''):`<div class="empty"><p class="eyebrow">A BLANK PAGE, A NEW BEGINNING</p><h3>${q?'还没找到这段记忆':'这一页，等待你的故事。'}</h3><p>${q?'换个关键词，继续寻找。':admin?'点击「写一篇记录」，留下今天的光。':'公开内容将在这里慢慢积累。'}</p></div>`;
+ $('#grid').innerHTML=list.length?list.map((p,i)=>`<button class="card ${p.category}" data-id="${escape(p.id)}"><span class="card-index">${String(i+1).padStart(2,'0')}</span>${p.images.length?`<div class="photo-frame"><img loading="lazy" src="${escape(p.images[0])}" alt="${escape(p.title)}"><span class="photo-count">${p.images.length} 张</span></div>`:`<div class="cover">${{life:'日',study:'学',work:'作',portrait:'旅',art:'画',photo:'光',travel:'旅'}[p.category]}</div>`}<div class="card-body"><div class="meta"><span>${names[p.category]}${p.status==='draft'?' · 草稿':''}</span><time>${new Date(p.date).toLocaleDateString('zh-CN')}</time></div><h3>${escape(p.title)}</h3><p>${escape(p.body.slice(0,100))}${p.body.length>100?'…':''}</p><span class="read-more">阅读记录 ↗</span></div></button>`).join(''):`<div class="empty"><p class="eyebrow">A BLANK PAGE, A NEW BEGINNING</p><h3>${q?'还没找到这段记忆':'这一页，等待你的故事。'}</h3><p>${q?'换个关键词，继续寻找。':admin?'点击「写一篇记录」，留下今天的光。':'公开内容将在这里慢慢积累。'}</p></div>`;
  if(view==='gallery'&&tab==='all'&&!q){
  $('#heading').textContent='相册分类';
- $('#grid').innerHTML=['portrait','art','photo'].map((category,i)=>{const albums=posts.filter(p=>p.category===category),image=albums.find(p=>p.images.length)?.images[0];return `<button class="album-category" data-album="${category}"><div class="album-stack">${image?`<img src="${escape(image)}" alt="${names[category]}">`:`<span class="album-placeholder">${category==='portrait'?'旅':category==='art'?'画':'光'}</span>`}<span class="album-total">${albums.reduce((n,p)=>n+p.images.length,0)} 张</span></div><small>COLLECTION ${String(i+1).padStart(2,'0')}</small><h3>${names[category]} <span>↗</span></h3><p>${category==='portrait'?'在路上，记录人与风景。':category==='art'?'画纸上的想象与练习。':'校园与生活里的光影。'}</p></button>`}).join('');
- document.querySelectorAll('[data-album]').forEach(b=>b.onclick=()=>{tab=b.dataset.album;render();$('#collection').scrollIntoView({behavior:'smooth'})});
+ $('#grid').innerHTML=['portrait','art','photo','travel'].map((category,i)=>{const albums=posts.filter(p=>p.category===category),image=albums.find(p=>p.images.length)?.images[0];return `<button class="album-category" data-album="${category}"><div class="album-stack">${image?`<img src="${escape(image)}" alt="${names[category]}">`:`<span class="album-placeholder">${category==='portrait'?'旅':category==='art'?'画':'光'}</span>`}<span class="album-total">${albums.reduce((n,p)=>n+p.images.length,0)} 张</span></div><small>COLLECTION ${String(i+1).padStart(2,'0')}</small><h3>${names[category]} <span>↗</span></h3><p>${category==='travel'?'走过的地方，遇见的风景。':category==='portrait'?'在路上，记录人与风景。':category==='art'?'画纸上的想象与练习。':'校园与生活里的光影。'}</p></button>`}).join('');
+ document.querySelectorAll('[data-album]').forEach(b=>b.onclick=()=>{tab=b.dataset.album;galleryPage=1;galleryKey='';render();$('#collection').scrollIntoView({behavior:'smooth'})});
  }
  document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>openPost(b.dataset.id));
 }
