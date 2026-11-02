@@ -40,7 +40,7 @@ async function api(path,method='GET',value){
   let rows;
   try{rows=await requestCloud('/rest/v1/journal_posts?select=*&order=date.desc')}catch(e){
    if(cloudSession||!(e instanceof TypeError||e.name==='TimeoutError'))throw e;
-   const cached=await fetch('./posts.json');if(!cached.ok)throw e;
+   const cached=await fetch('./posts.json',{cache:'no-store'});if(!cached.ok)throw e;
    toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
   }
   let failed=false;
