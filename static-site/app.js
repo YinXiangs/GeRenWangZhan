@@ -103,7 +103,7 @@ function render(){
  let homeTotal=0,homePages=1,homeFeature=null;
  if(view==='home'){
   const key=tab+'|'+q;if(key!==homeKey){homePage=1;homeKey=key}
-  const pageSize=tab==='all'?3:4;homeTotal=list.length;homePages=Math.max(1,Math.ceil(homeTotal/pageSize));homePage=Math.min(homePage,homePages);
+  const pageSize=4;homeTotal=list.length;homePages=Math.max(1,Math.ceil(homeTotal/pageSize));homePage=Math.min(homePage,homePages);
   list=list.slice((homePage-1)*pageSize,homePage*pageSize);
   if(tab==='all'&&!q&&homePage===1&&list[0]?.status==='published'){homeFeature=list[0];list=list.slice(1)}
  }
