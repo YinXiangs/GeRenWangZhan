@@ -20,9 +20,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Preserve public static-site URL
+        run: |
+          mkdir -p _site
+          cp -R static-site _site/static-site
+          cp index.html _site/index.html
+          touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: static-site
+          path: _site
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
