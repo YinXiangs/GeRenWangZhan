@@ -17,7 +17,7 @@ async function ensureSession(){
  await refreshing;
 }
 async function displayImage(path){
- if(/^\.\/media\/[a-f0-9]{32}\.(jpg|png|webp)$/.test(path))return path;
+ if(/^\.\/media\/[a-f0-9]{32,40}\.(jpg|png|webp)$/.test(path))return path;
  if(!/^uploads\/[a-f0-9-]+\.(jpg|png|webp)$/.test(path))throw Error('图片路径无效');
  const result=await requestCloud('/storage/v1/object/sign/journal-media/'+path,'POST',{expiresIn:3600});
  const url=cloudURL+'/storage/v1'+result.signedURL;imageKeys.set(url,path);return url;
@@ -37,7 +37,14 @@ async function api(path,method='GET',value){
    const cached=await fetch('./posts.json');if(!cached.ok)throw e;
    toast('云端暂时无法连接，正在显示原有相册。登录上传需要网络恢复。');return cached.json();
   }
-  return Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(displayImage))})));
+  let failed=false;
+  const resolved=await Promise.all(rows.map(async p=>({...p,images:await Promise.all(p.images.map(async path=>{
+   try{return await displayImage(path)}catch{
+    failed=true;const placeholder='./avatar.jpg?unavailable='+encodeURIComponent(path);imageKeys.set(placeholder,path);return placeholder;
+   }
+  }))})));
+  if(failed)toast('部分图片暂时无法显示，文章仍可正常阅读。');
+  return resolved;
  }
  if(path==='posts'&&method==='POST'){
   const id=value.id||crypto.randomUUID();const row={...value,id,date:posts.find(p=>p.id===id)?.date||new Date().toISOString(),images:value.images.map(url=>imageKeys.get(url)||url)};

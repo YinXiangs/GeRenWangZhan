@@ -9,7 +9,7 @@ app=app.replaceAll("location.pathname.startsWith('/post/')","new URLSearchParams
 app=app.replaceAll('href="/?','href="./?');
 app=app.replace('placeholder="输入管理邮箱"','value="yin2164933041@outlook.com" placeholder="输入管理邮箱"');
 writeFileSync('static-site/app.js',app);
-writeFileSync('static-site/index.html',readFileSync('public/index.html','utf8').replaceAll('href="/','href="./').replaceAll('src="/','src="./'));
+writeFileSync('static-site/index.html',readFileSync('public/index.html','utf8').replaceAll('href="/','href="./').replaceAll('src="/','src="./').replace('src="./app.js"','src="./app.js?v=cloud-20261102-3"'));
 const posts=JSON.parse(readFileSync('static-site/posts.json','utf8'));
 const quote=s=>"'"+String(s).replaceAll("'","''")+"'";
 const sql=`begin;\ncreate or replace function public.can_edit_journal() returns boolean language sql stable security invoker set search_path='' as $$ select private.is_site_admin(); $$;\nrevoke all on function public.can_edit_journal() from public;\ngrant execute on function public.can_edit_journal() to anon, authenticated;\n`+posts.map(p=>`insert into public.journal_posts(id,title,category,body,images,status,date) values(${[p.id,p.title,p.category,p.body,JSON.stringify(p.images),p.status,p.date].map(quote).join(',')}) on conflict(id) do nothing;`).join('\n')+'\ncommit;';
